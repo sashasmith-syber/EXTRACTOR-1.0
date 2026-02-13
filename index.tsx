@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 // Fix: Module '@google/genai' has no exported members 'TextPart' or 'ImagePart'. The correct type for content parts is 'Part'.
-import { GoogleGenAI, Type, Part } from '@google/genai';
+import { GoogleGenAI, Type, Part, Modality } from '@google/genai';
 
 interface SAPSAnalysis {
   coreSoundscape: string;
@@ -79,6 +79,17 @@ const App = () => {
   const [isMusicPromptRefining, setIsMusicPromptRefining] = useState(false);
   const [isDPMUpdating, setIsDPMUpdating] = useState(false);
 
+  const [editingInstruction, setEditingInstruction] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedImage, setEditedImage] = useState<string | null>(null);
+  
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [videoGenerationMessage, setVideoGenerationMessage] = useState('');
+  const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
+  const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9');
+  const [videoResolution, setVideoResolution] = useState<'720p' | '1080p'>('1080p');
+  const [isApiKeyModalVisible, setIsApiKeyModalVisible] = useState(false);
+
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -118,6 +129,13 @@ const App = () => {
     setGarCustomizationInput('');
     setOriginalMusicPrompt(null);
     setMusicPromptRefinementInstruction('');
+    setEditingInstruction('');
+    setIsEditing(false);
+    setEditedImage(null);
+    setGeneratedVideoUrl(null);
+    setIsGeneratingVideo(false);
+    setVideoGenerationMessage('');
+    setIsApiKeyModalVisible(false);
     if(fileInputRef.current) {
         fileInputRef.current.value = '';
     }
@@ -143,6 +161,8 @@ const App = () => {
       setStructuredPrompt(null);
       setMultimodalPrompts({});
       setGeneratedImage(null);
+      setEditedImage(null);
+      setEditingInstruction('');
       setPromptVariations([]);
       setOriginalFullPrompt(null);
       setMusicPrompt(null);
@@ -150,6 +170,7 @@ const App = () => {
       setGarCustomizationInput('');
       setOriginalMusicPrompt(null);
       setMusicPromptRefinementInstruction('');
+      setGeneratedVideoUrl(null);
       const reader = new FileReader();
       reader.onloadend = () => {
         setSelectedFile({ file, dataUrl: reader.result as string, type: simpleType });
@@ -171,6 +192,8 @@ const App = () => {
     setSelectedFile(null);
     setMultimodalPrompts({});
     setGeneratedImage(null);
+    setEditedImage(null);
+    setEditingInstruction('');
     setPromptVariations([]);
     setOriginalFullPrompt(null);
     setMusicPrompt(null);
@@ -178,6 +201,7 @@ const App = () => {
     setGarCustomizationInput('');
     setOriginalMusicPrompt(null);
     setMusicPromptRefinementInstruction('');
+    setGeneratedVideoUrl(null);
 
     try {
         // Using a CORS proxy for fetching images from URLs
@@ -291,6 +315,8 @@ const App = () => {
     setStructuredPrompt(null);
     setMultimodalPrompts({});
     setGeneratedImage(null);
+    setEditedImage(null);
+    setEditingInstruction('');
     setPromptVariations([]);
     setOriginalFullPrompt(null);
     setMusicPrompt(null);
@@ -298,6 +324,7 @@ const App = () => {
     setGarCustomizationInput('');
     setOriginalMusicPrompt(null);
     setMusicPromptRefinementInstruction('');
+    setGeneratedVideoUrl(null);
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
@@ -464,6 +491,55 @@ const App = () => {
     }
   };
 
+    const handleEditImage = async () => {
+    if (!selectedFile || !editingInstruction.trim()) return;
+
+    setIsEditing(true);
+    setEditedImage(null);
+    setError(null);
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+      const base64ImageData = await fileToBase64(selectedFile.file);
+      
+      const imagePart = {
+        inlineData: {
+          data: base64ImageData,
+          mimeType: selectedFile.file.type,
+        },
+      };
+
+      const textPart = {
+        text: editingInstruction,
+      };
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [imagePart, textPart],
+        },
+        config: {
+            responseModalities: [Modality.IMAGE],
+        },
+      });
+
+      for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+          const base64ImageBytes: string = part.inlineData.data;
+          const imageUrl = `data:image/png;base64,${base64ImageBytes}`;
+          setEditedImage(imageUrl);
+          break; // Found the image, exit loop
+        }
+      }
+
+    } catch (err) {
+      console.error(err);
+      setError('Failed to edit image. Please try again.');
+    } finally {
+      setIsEditing(false);
+    }
+  };
+
   const handleGenerateMultimodalPrompt = async (modality: 'story' | 'music' | 'threeD') => {
     if (!structuredPrompt) return;
 
@@ -577,11 +653,14 @@ Original prompt: "${structuredPrompt.fullPrompt}"`;
     
     setMultimodalPrompts({});
     setGeneratedImage(null);
+    setEditedImage(null);
+    setEditingInstruction('');
     setMusicPrompt(null);
     setSelectedMusicStyle(null);
     setGarCustomizationInput('');
     setOriginalMusicPrompt(null);
     setMusicPromptRefinementInstruction('');
+    setGeneratedVideoUrl(null);
   };
   
   const handleOptimizePrompt = async () => {
@@ -617,12 +696,15 @@ Refined Prompt:`;
         setStructuredPrompt(newPromptData);
         setOptimizationInstruction('');
         setGeneratedImage(null);
+        setEditedImage(null);
+        setEditingInstruction('');
         setMultimodalPrompts({});
         setMusicPrompt(null);
         setSelectedMusicStyle(null);
         setGarCustomizationInput('');
         setOriginalMusicPrompt(null);
         setMusicPromptRefinementInstruction('');
+        setGeneratedVideoUrl(null);
 
         setPromptHistory(prev => {
             const newHistory = [...prev];
@@ -647,12 +729,15 @@ Refined Prompt:`;
     setStructuredPrompt(revertedPromptData);
 
     setGeneratedImage(null);
+    setEditedImage(null);
+    setEditingInstruction('');
     setMultimodalPrompts({});
     setMusicPrompt(null);
     setSelectedMusicStyle(null);
     setGarCustomizationInput('');
     setOriginalMusicPrompt(null);
     setMusicPromptRefinementInstruction('');
+    setGeneratedVideoUrl(null);
 
     setPromptHistory(prev => {
         const newHistory = [...prev];
@@ -687,12 +772,15 @@ Refined Prompt:`;
     setOriginalFullPrompt(prompt.fullPrompt);
     setMultimodalPrompts({});
     setGeneratedImage(null);
+    setEditedImage(null);
+    setEditingInstruction('');
     setPromptVariations([]);
     setMusicPrompt(null);
     setSelectedMusicStyle(null);
     setGarCustomizationInput('');
     setOriginalMusicPrompt(null);
     setMusicPromptRefinementInstruction('');
+    setGeneratedVideoUrl(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -978,6 +1066,94 @@ Final Synthesized Prompt:
     }
   };
 
+  const handleGenerateVideo = async () => {
+    if (!structuredPrompt) return;
+
+    // Check for API key
+    const hasKey = await (window as any).aistudio.hasSelectedApiKey();
+    if (!hasKey) {
+        setIsApiKeyModalVisible(true);
+        return;
+    }
+
+    setIsGeneratingVideo(true);
+    setGeneratedVideoUrl(null);
+    setError(null);
+    setVideoGenerationMessage('Initializing video generation...');
+
+    try {
+        // Re-initialize AI client to get the latest key
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+
+        let operation = await ai.models.generateVideos({
+            model: 'veo-3.1-fast-generate-preview',
+            prompt: structuredPrompt.fullPrompt,
+            config: {
+                numberOfVideos: 1,
+                resolution: videoResolution,
+                aspectRatio: videoAspectRatio,
+            }
+        });
+
+        const messages = [
+            "This can take a few minutes...",
+            "Analyzing your prompt...",
+            "Storyboarding the scene...",
+            "Rendering frames...",
+            "Applying final touches...",
+            "Almost there..."
+        ];
+        let messageIndex = 0;
+        
+        setVideoGenerationMessage(messages[messageIndex]);
+
+        while (!operation.done) {
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            messageIndex = (messageIndex + 1) % messages.length;
+            setVideoGenerationMessage(messages[messageIndex]);
+            operation = await ai.operations.getVideosOperation({ operation });
+        }
+
+        if (operation.error) {
+            throw new Error(operation.error.message || 'Video generation failed in operation.');
+        }
+
+        setVideoGenerationMessage('Fetching your video...');
+        const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+
+        if (!downloadLink) {
+            throw new Error('Video generation finished, but no download link was found.');
+        }
+        
+        const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch video file. Status: ${response.status}`);
+        }
+
+        const videoBlob = await response.blob();
+        const videoUrl = URL.createObjectURL(videoBlob);
+        setGeneratedVideoUrl(videoUrl);
+
+    } catch (err) {
+        console.error(err);
+        let errorMessage = 'Failed to generate video. Please try again.';
+        if (err instanceof Error && err.message.includes('Requested entity was not found')) {
+            errorMessage = 'Your API Key is invalid. Please select a valid key and try again.';
+        }
+        setError(errorMessage);
+    } finally {
+        setIsGeneratingVideo(false);
+        setVideoGenerationMessage('');
+    }
+  };
+  
+  const handleSelectKey = async () => {
+    await (window as any).aistudio.openSelectKey();
+    setIsApiKeyModalVisible(false);
+    // Assume key is selected and re-trigger generation
+    handleGenerateVideo();
+  };
+
 
   return (
     <div className="app-container">
@@ -987,6 +1163,25 @@ Final Synthesized Prompt:
       </header>
 
       <main>
+        {isApiKeyModalVisible && (
+            <div className="api-key-modal-overlay">
+                <div className="api-key-modal">
+                    <h3>API Key Required for Veo</h3>
+                    <p>
+                        Video generation with Veo requires a valid API key. Please select a key to continue.
+                        Using this feature may incur costs.
+                    </p>
+                    <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer">
+                        Learn more about billing
+                    </a>
+                    <div className="modal-actions">
+                        <button onClick={() => setIsApiKeyModalVisible(false)} className="modal-button secondary">Cancel</button>
+                        <button onClick={handleSelectKey} className="modal-button primary">Select API Key</button>
+                    </div>
+                </div>
+            </div>
+        )}
+      
         <div className="card">
           <div className="input-mode-switcher">
             <button 
@@ -1238,6 +1433,127 @@ Final Synthesized Prompt:
                     {generatedImage && !isImageGenerating && (
                         <div className="generated-image-container">
                             <img src={generatedImage} alt="Generated from prompt" className="generated-image" />
+                        </div>
+                    )}
+                </div>
+            </div>
+        )}
+
+        {structuredPrompt && !isLoading && selectedFile?.type === 'image' && (
+            <div className="card">
+                <div className="image-edit-section">
+                    <h2>Image Editing (Nano Banana)</h2>
+                    <p className="image-edit-description">Use the original uploaded image and provide an instruction to edit it.</p>
+                    <div className="optimizer-input-group">
+                        <input
+                            type="text"
+                            className="optimizer-input"
+                            placeholder="e.g., add a party hat on the main subject"
+                            value={editingInstruction}
+                            onChange={(e) => setEditingInstruction(e.target.value)}
+                            disabled={isEditing}
+                            onKeyDown={(e) => e.key === 'Enter' && handleEditImage()}
+                        />
+                        <button
+                            className="optimizer-button"
+                            onClick={handleEditImage}
+                            disabled={isEditing || !editingInstruction.trim()}
+                        >
+                            {isEditing ? 'Editing...' : 'Generate Edit'}
+                        </button>
+                    </div>
+                    
+                    {isEditing && (
+                        <div className="loader-container">
+                            <div className="spinner"></div>
+                            <p>Applying your edits...</p>
+                        </div>
+                    )}
+                    
+                    {editedImage && !isEditing && (
+                        <div className="image-edit-results">
+                            <div>
+                                <h4>Original</h4>
+                                <img src={selectedFile.dataUrl} alt="Original for editing" />
+                            </div>
+                            <div>
+                                <h4>Edited</h4>
+                                <img src={editedImage} alt="Edited result" />
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        )}
+
+        {structuredPrompt && !isLoading && (
+            <div className="card">
+                <div className="video-generation-section">
+                    <h2>Veo Video Generation</h2>
+                    <p className="video-generation-description">
+                        Use the prompt to generate a short video with Veo. This process can take several minutes.
+                    </p>
+
+                    <div className="video-controls">
+                        <div className="control-group">
+                            <label>Aspect Ratio</label>
+                            <div className="toggle-buttons">
+                                <button 
+                                    className={`toggle-button ${videoAspectRatio === '16:9' ? 'active' : ''}`}
+                                    onClick={() => setVideoAspectRatio('16:9')}
+                                    aria-pressed={videoAspectRatio === '16:9'}
+                                >16:9</button>
+                                <button
+                                     className={`toggle-button ${videoAspectRatio === '9:16' ? 'active' : ''}`}
+                                     onClick={() => setVideoAspectRatio('9:16')}
+                                     aria-pressed={videoAspectRatio === '9:16'}
+                                >9:16</button>
+                            </div>
+                        </div>
+                        <div className="control-group">
+                            <label>Resolution</label>
+                            <div className="toggle-buttons">
+                                <button
+                                     className={`toggle-button ${videoResolution === '720p' ? 'active' : ''}`}
+                                     onClick={() => setVideoResolution('720p')}
+                                     aria-pressed={videoResolution === '720p'}
+                                >720p</button>
+                                <button
+                                     className={`toggle-button ${videoResolution === '1080p' ? 'active' : ''}`}
+                                     onClick={() => setVideoResolution('1080p')}
+                                     aria-pressed={videoResolution === '1080p'}
+                                >1080p</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button
+                        className="generate-button"
+                        onClick={handleGenerateVideo}
+                        disabled={isGeneratingVideo}
+                    >
+                        {isGeneratingVideo ? 'Generating Video...' : 'Generate Video'}
+                    </button>
+                    
+                    {isGeneratingVideo && (
+                        <div className="loader-container">
+                            <div className="spinner"></div>
+                            <p>{videoGenerationMessage}</p>
+                        </div>
+                    )}
+
+                    {generatedVideoUrl && !isGeneratingVideo && (
+                        <div className="generated-video-container">
+                            <video 
+                                src={generatedVideoUrl}
+                                className="generated-video"
+                                controls
+                                autoPlay
+                                loop
+                                muted
+                                playsInline
+                                aria-label="Generated video"
+                            />
                         </div>
                     )}
                 </div>
